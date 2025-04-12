@@ -1,30 +1,14 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict
-import numpy as np
-from datetime import datetime
+from fastapi import FastAPI
+from .routes.revenue import router as revenue_router
 
-app = FastAPI()
+app = FastAPI(
+    title="Market Mapper Calculator",
+    description="API for calculating market size and revenue projections",
+    version="1.0.0"
+)
 
-class RevenueData(BaseModel):
-    historical_data: List[Dict[str, float]]  # List of {month: str, revenue: float}
-    inflation_data: List[Dict[str, float]]   # List of {month: str, value: float}
-    start_date: str
-    end_date: str
+app.include_router(revenue_router, prefix="/api", tags=["revenue"])
 
 @app.get("/")
 async def root():
-    return {"message": "Revenue Calculator API is running"}
-
-@app.post("/calculate")
-async def calculate_revenue(data: RevenueData):
-    try:
-        # Your revenue calculation logic will go here
-        # This is just a placeholder that returns the input data
-        return {
-            "status": "success",
-            "input_received": data.dict(),
-            "message": "Calculation endpoint ready for implementation"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+    return {"message": "Market Mapper Calculator API is running"} 
