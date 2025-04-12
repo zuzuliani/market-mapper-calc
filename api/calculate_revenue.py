@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from .routes.revenue import router as revenue_router
+from api.routes.revenue import router as revenue_router
 
 app = FastAPI(
     title="Market Mapper Calculator",

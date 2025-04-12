@@ -1,9 +1,9 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/*.py", "use": "@vercel/python" }
+    { "src": "api/calculate_revenue.py", "use": "@vercel/python" }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "api/$1" }
+    { "src": "/(.*)", "dest": "api/calculate_revenue.py" }
   ]
 } 

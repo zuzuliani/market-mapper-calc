@@ -1,6 +1,6 @@
 from fastapi import APIRouter
-from ..models.schemas import RevenueInput, RevenueOutput
-from ..services.revenue import calculate_revenue
+from api.models.schemas import RevenueInput, RevenueOutput
+from api.services.revenue import calculate_revenue
 
 router = APIRouter()
 

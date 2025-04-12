@@ -1,5 +1,5 @@
 import numpy as np
-from ..models.schemas import RevenueInput, RevenueOutput
+from api.models.schemas import RevenueInput, RevenueOutput
 
 def calculate_revenue(input_data: RevenueInput) -> RevenueOutput:
     """Calculate revenue based on market size, share, and growth rate."""
