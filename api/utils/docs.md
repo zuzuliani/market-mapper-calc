@@ -75,6 +75,74 @@ market-mapper-calc/
   }
   ```
 
+## Weweb Integration
+
+### REST API Configuration
+1. In weweb, add a new REST API action:
+   - Method: `POST`
+   - URL: `https://market-mapper-calc.vercel.app/api/calculate`
+   - Content-Type: `application/json`
+
+### Request Body Example
+```json
+{
+    "market_size": /* marketSize variable */,
+    "market_share": /* marketShare variable */,
+    "price_point": /* pricePoint variable */,
+    "growth_rate": /* growthRate variable */,
+    "time_horizon": /* timeHorizon variable */
+}
+```
+
+### Response Handling
+The API response will be in the following format:
+```json
+{
+    "revenue": 31525000.0,
+    "yearly_revenue": [10000000.0, 10500000.0, 11025000.0],
+    "market_size": 1000000.0,
+    "market_share": 0.1
+}
+```
+
+You can access these values in weweb using:
+- `result.revenue` - Total revenue
+- `result.yearly_revenue` - Array of yearly revenues
+- `result.market_size` - Input market size
+- `result.market_share` - Input market share
+
+### Example Usage in Weweb
+1. **Action Setup**:
+   ```javascript
+   {
+     "market_size": wwElement.marketSize,
+     "market_share": wwElement.marketShare,
+     "price_point": wwElement.pricePoint,
+     "growth_rate": wwElement.growthRate,
+     "time_horizon": wwElement.timeHorizon
+   }
+   ```
+
+2. **Using the Response**:
+   ```javascript
+   // Total revenue
+   const totalRevenue = result.revenue;
+   
+   // Yearly breakdown
+   const yearlyRevenues = result.yearly_revenue;
+   
+   // First year revenue
+   const firstYearRevenue = yearlyRevenues[0];
+   ```
+
+### Error Handling
+The API will return appropriate HTTP status codes:
+- 200: Successful calculation
+- 422: Invalid input data
+- 500: Server error
+
+You can handle these in weweb using try/catch or checking the response status.
+
 ## Deployment
 
 ### Vercel Configuration
