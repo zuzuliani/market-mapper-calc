@@ -1,7 +1,7 @@
 # Market Mapper Calculation System Design
 
 ## Overview
-This document outlines the design of the calculation system used in Market Mapper. The system is built around nodes containing rows, where each row can have multiple calculation steps that form a hierarchical structure. Each step can have its own inputs, local variables, and calculation logic.
+This document outlines the design of the calculation system used in Market Mapper. The system is built around nodes containing rows, where each row can have multiple calculation steps that form a hierarchical structure. Each step can have its own inputs, local variables, and calculation logic. This design enables flexible and maintainable calculations while ensuring proper dependency management.
 
 ## Core Concepts
 
