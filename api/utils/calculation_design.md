@@ -228,11 +228,45 @@ Cost Analysis Row (index: 3)
 
 ## API Endpoint Design
 
-### 1. Node Management
+### 1. Core Calculation Endpoint
+```
+POST /api/calculate
+- Execute calculation for a specific node/row
+- Body: {
+    node_id: str,
+    row_id: str,
+    inputs: {
+        market_size: float,
+        market_share: float,
+        price_point: float,
+        growth_rate: float,
+        time_horizon: int
+    }
+}
+- Response: {
+    revenue: float,
+    yearly_revenue: [float],
+    market_size: float,
+    market_share: float,
+    steps: [
+        {
+            step_number: int,
+            result: any,
+            execution_time: float
+        }
+    ]
+}
+```
+
+### 2. Node Management
 ```
 POST /api/nodes
 - Create a new node
-- Body: { name: str, description: str, rows: [] }
+- Body: { 
+    name: str, 
+    description: str, 
+    rows: [] 
+}
 
 GET /api/nodes
 - List all nodes
@@ -241,16 +275,70 @@ GET /api/nodes
 GET /api/nodes/{node_id}
 - Get node details
 - Response includes full row and step structure
-
-PUT /api/nodes/{node_id}
-- Update node metadata
-- Body: { name: str, description: str }
-
-DELETE /api/nodes/{node_id}
-- Delete node and all its rows
 ```
 
-### 2. Row Management
+### 3. Data Management
+```
+POST /api/data/historical
+- Upload historical data for calculations
+- Body: {
+    node_id: str,
+    row_id: str,
+    data: [
+        {
+            period: date,
+            value: any
+        }
+    ]
+}
+
+GET /api/data/historical
+- Get historical data
+- Query params: node_id, row_id, start_date, end_date
+```
+
+### 4. Weweb Integration
+The API is designed to work seamlessly with Weweb:
+
+1. **Action Setup**:
+```javascript
+{
+    "market_size": wwElement.marketSize,
+    "market_share": wwElement.marketShare,
+    "price_point": wwElement.pricePoint,
+    "growth_rate": wwElement.growthRate,
+    "time_horizon": wwElement.timeHorizon
+}
+```
+
+2. **Response Handling**:
+```javascript
+// Total revenue
+const totalRevenue = result.revenue;
+
+// Yearly breakdown
+const yearlyRevenues = result.yearly_revenue;
+
+// Step results
+const stepResults = result.steps;
+```
+
+### 5. Error Handling
+The API returns appropriate HTTP status codes:
+- 200: Successful calculation
+- 422: Invalid input data
+- 500: Server error
+
+Error responses include:
+```json
+{
+    "detail": "Error message",
+    "step": "step_number",
+    "input": "input_name"
+}
+```
+
+### 6. Row Management
 ```
 POST /api/nodes/{node_id}/rows
 - Create a new row
@@ -281,58 +369,8 @@ DELETE /api/nodes/{node_id}/rows/{row_id}
 - Delete row and all its steps
 ```
 
-### 3. Calculation Execution
+### 7. Data Management
 ```
-POST /api/calculate
-- Execute calculation for specific node/row
-- Body: {
-    node_id: str,
-    row_id: str,
-    period: {
-        start: date,
-        end: date
-    },
-    inputs: {
-        // Override any inputs for this calculation
-    }
-}
-
-GET /api/calculate/{calculation_id}
-- Get calculation status and results
-- Response: {
-    status: str,
-    progress: float,
-    results: {
-        steps: [
-            {
-                step_number: int,
-                result: any,
-                execution_time: float
-            }
-        ]
-    }
-}
-```
-
-### 4. Data Management
-```
-POST /api/data/historical
-- Upload historical data
-- Body: {
-    node_id: str,
-    row_id: str,
-    data: [
-        {
-            period: date,
-            value: any
-        }
-    ]
-}
-
-GET /api/data/historical
-- Get historical data
-- Query params: node_id, row_id, start_date, end_date
-
 POST /api/data/mock
 - Create mock data for testing
 - Body: {
@@ -343,7 +381,7 @@ POST /api/data/mock
 }
 ```
 
-### 5. Validation and Testing
+### 8. Validation and Testing
 ```
 POST /api/validate
 - Validate node/row structure
