@@ -1,7 +1,7 @@
 # Market Mapper Calculation System Design
 
 ## Overview
-This document outlines the design of the calculation system used in Market Mapper. The system is built around nodes containing rows, where each row can have multiple calculation steps that form a hierarchical structure. Each step can have its own inputs, local variables, and calculation logic. This design enables flexible and maintainable calculations while ensuring proper dependency management.
+This document outlines the design of the calculation system used in Market Mapper. The system is built around nodes containing rows, where each row can have multiple calculation steps stored in a dedicated row_calculations table. Each step can have its own inputs, local variables, and calculation logic. This design enables flexible and maintainable calculations while ensuring proper dependency management.
 
 ## Core Concepts
 
@@ -9,55 +9,57 @@ This document outlines the design of the calculation system used in Market Mappe
 A node represents a logical grouping of related calculations. For example, a "Total Revenue" node might contain:
 - Revenue (with multiple calculation steps)
 
-### 2. Row Structure
-Each row within a node contains a sequence of calculation steps:
+### 2. Database Structure
+
+#### Row Table
+```sql
+CREATE TABLE node_rows (
+    id UUID PRIMARY KEY,
+    node_id UUID NOT NULL,
+    index INTEGER NOT NULL,
+    name VARCHAR(255),
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (node_id) REFERENCES nodes(id)
+);
 ```
-{
-    metadata: {
-        index: int,          # Determines calculation order (max(input_indices) + 1)
-        name: str,           # Row name
-        description: str     # Optional description
-    },
-    steps: [
-        {
-            step_number: int,  # Sequential order within row (1.1, 1.2, 1.3)
-            local_variables: { # Variables specific to this step
-                variable_name: {
-                    type: str,       # number, date, array, timeSeries
-                    value: any,
-                    validation: {    # Optional validation rules
-                        min: float,
-                        max: float,
-                        format: str
-                    },
-                    metadata: {      # Additional information
-                        unit: str,
-                        display_format: str
-                    }
-                }
-            },
-            inputs: {
-                references: [],      # IDs/references to input rows or previous steps
-                mock_values: {}      # For testing/preview
-            },
-            calculation: {
-                type: str,          # Calculation type identifier
-                params: {}          # Calculation-specific parameters
-            },
-            output: {
-                type: str,          # Expected output type
-                validation: {}      # Output validation rules
-            }
-        }
-    ]
-}
+
+#### Row Calculations Table
+```sql
+CREATE TABLE row_calculations (
+    id UUID PRIMARY KEY,
+    row_id UUID NOT NULL,
+    step_number INTEGER NOT NULL,
+    calculation_type calculation_type NOT NULL DEFAULT 'empty',
+    local_variables JSONB DEFAULT '{}',
+    inputs JSONB DEFAULT '{"references": [], "mock_values": {}}',
+    output_type VARCHAR(50) DEFAULT 'number',
+    output_validation JSONB DEFAULT '{}',
+    calculation_params JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (row_id) REFERENCES node_rows(id)
+);
 ```
+
+### 3. Calculation Types
+Available calculation types (as enum):
+- multiplication
+- division
+- addition
+- subtraction
+- percentage
+- forecast_yoy
+- compound_growth
+- inflation_adjustment
+- empty
 
 ## Calculation Flow
 
 ### 1. Step Chain Processing
-- Each row contains a sequence of calculation steps
-- Steps are executed in order (1.1 → 1.2 → 1.3)
+- Each row has multiple calculation steps in the row_calculations table
+- Steps are executed in order by step_number
 - Each step can depend on:
   - Results from previous steps in the same row
   - Results from other rows
@@ -65,7 +67,7 @@ Each row within a node contains a sequence of calculation steps:
   - External inputs
 
 ### 2. Index Management
-- Index determines model-wide calculation order
+- Row index determines model-wide calculation order
 - Formula: `index = max(input_indices) + 1`
 - Ensures dependencies are calculated before they're needed
 - Used for model/simulation steps
@@ -75,20 +77,23 @@ Each row within a node contains a sequence of calculation steps:
 #### Total Revenue Node Example
 ```
 Revenue Row (index: 1)
-├── Step 1.1: Volume Sold (index: 0)
-│   ├── Inputs: [Total Population, Percentage]
-│   ├── Local Variables: { Percentage: 0.05 }
-│   └── Calculation: multiplication
+├── Step 1: Volume Sold
+│   ├── calculation_type: multiplication
+│   ├── inputs: {"references": ["total_population"], "mock_values": {}}
+│   ├── local_variables: {"percentage": 0.05}
+│   └── output_type: number
 │
-├── Step 1.2: Average Price (index: 0)
-│   ├── Inputs: [Historical Data]
-│   ├── Local Variables: { Historical Data: [{period, value}] }
-│   └── Calculation: Simple YoY Forecast
+├── Step 2: Average Price
+│   ├── calculation_type: forecast_yoy
+│   ├── inputs: {"references": ["historical_data"]}
+│   ├── local_variables: {"historical_data": [{period, value}]}
+│   └── output_type: number
 │
-└── Step 1.3: Revenue (index: 1)
-    ├── Inputs: [Volume Sold result, Average Price result]
-    ├── Local Variables: {}
-    └── Calculation: multiplication
+└── Step 3: Revenue
+    ├── calculation_type: multiplication
+    ├── inputs: {"references": ["step_1_result", "step_2_result"]}
+    ├── local_variables: {}
+    └── output_type: number
 ```
 
 #### Market Share Node Example
@@ -402,4 +407,33 @@ POST /api/test
         }
     ]
 }
+```
+
+### 9. Row Calculations Management
+```
+POST /api/rows/{row_id}/calculations
+- Create a new calculation step
+- Body: {
+    step_number: int,
+    calculation_type: str,
+    local_variables: {},
+    inputs: {
+        references: [],
+        mock_values: {}
+    },
+    output_type: str,
+    output_validation: {},
+    calculation_params: {}
+}
+
+GET /api/rows/{row_id}/calculations
+- List all calculation steps for a row
+- Query params: include_results: bool
+
+PUT /api/rows/{row_id}/calculations/{calculation_id}
+- Update calculation step
+- Body: same as POST
+
+DELETE /api/rows/{row_id}/calculations/{calculation_id}
+- Delete calculation step
 ``` 
