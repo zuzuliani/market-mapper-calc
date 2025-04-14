@@ -112,6 +112,49 @@ CREATE POLICY "Allow all access for authenticated users" ON historical_data_poin
     WITH CHECK (true);
 ```
 
+#### Forecasted Data Tables
+```sql
+CREATE TABLE forecasted_data (
+    id UUID PRIMARY KEY,
+    historical_data_id UUID NOT NULL,
+    forecast_method VARCHAR(50) NOT NULL,  -- e.g., 'yoy', 'compound_growth'
+    forecast_params JSONB DEFAULT '{}',    -- parameters used for the forecast
+    confidence FLOAT,                      -- confidence in the forecast
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (historical_data_id) REFERENCES historical_data(id)
+);
+
+-- Enable RLS
+ALTER TABLE forecasted_data ENABLE ROW LEVEL SECURITY;
+
+-- Simple policy: all access for authenticated users
+CREATE POLICY "Allow all access for authenticated users" ON forecasted_data
+    FOR ALL
+    TO authenticated
+    USING (true)
+    WITH CHECK (true);
+
+CREATE TABLE forecasted_data_points (
+    id UUID PRIMARY KEY,
+    forecasted_data_id UUID NOT NULL,
+    period DATE NOT NULL,
+    value NUMERIC NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (forecasted_data_id) REFERENCES forecasted_data(id),
+    UNIQUE (forecasted_data_id, period)  -- one forecasted value per period
+);
+
+-- Enable RLS
+ALTER TABLE forecasted_data_points ENABLE ROW LEVEL SECURITY;
+
+-- Simple policy: all access for authenticated users
+CREATE POLICY "Allow all access for authenticated users" ON forecasted_data_points
+    FOR ALL
+    TO authenticated
+    USING (true)
+    WITH CHECK (true);
+```
+
 ### 3. Input/Output Structure
 
 #### Input Types
@@ -202,8 +245,13 @@ Revenue Row (index: 1)
 │   │     "historical_sales": {
 │   │         "reference": "historical_data_id",
 │   │         "mock_value": 1000,
-│   │         "periodic_data": []
+│   │         "periodic_data": []  // Will be fetched from historical_data_points
 │   │     }
+│   │ }
+│   ├── forecast_params: {
+│   │     "method": "yoy",
+│   │     "growth_rate": 0.1,
+│   │     "periods": 5
 │   │ }
 │   └── output: {
 │         "mock_output": 1100,  // Forecasted from mock_value
@@ -227,6 +275,47 @@ Revenue Row (index: 1)
     └── output: {
           "mock_output": 2200,  // Calculated from input mock outputs
           "periodic_output": []  // Will be calculated from input periodic outputs
+        }
+```
+
+#### Data Flow Example
+```
+Historical Data:
+historical_data
+└── id: "hd_123"
+    ├── metric_name: "Sales"
+    ├── source: "Internal Reports"
+    └── historical_data_points
+        ├── { period: "2023-01", value: 1000 }
+        ├── { period: "2023-02", value: 1100 }
+        └── { period: "2023-03", value: 1200 }
+
+Forecasted Data:
+forecasted_data
+└── id: "fd_456"
+    ├── historical_data_id: "hd_123"
+    ├── forecast_method: "yoy"
+    ├── forecast_params: { "growth_rate": 0.1 }
+    └── forecasted_data_points
+        ├── { period: "2023-04", value: 1320 }
+        ├── { period: "2023-05", value: 1452 }
+        └── { period: "2023-06", value: 1597 }
+
+Row Calculation:
+row_calculations
+└── id: "rc_789"
+    ├── row_calculation_id: "rc_789"
+    ├── calculation_type: "forecast_yoy"
+    ├── inputs: {
+    │   "historical_sales": {
+    │       "reference": "hd_123",
+    │       "mock_value": 1000,
+    │       "periodic_data": []  // Fetched from historical_data_points
+    │   }
+    │ }
+    └── output: {
+          "mock_output": 1100,
+          "periodic_output": []  // Generated from forecasted_data_points
         }
 ```
 
