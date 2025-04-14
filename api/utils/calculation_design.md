@@ -23,6 +23,16 @@ CREATE TABLE node_rows (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     FOREIGN KEY (node_id) REFERENCES nodes(id)
 );
+
+-- Enable RLS
+ALTER TABLE node_rows ENABLE ROW LEVEL SECURITY;
+
+-- Simple policy: all access for authenticated users
+CREATE POLICY "Allow all access for authenticated users" ON node_rows
+    FOR ALL
+    TO authenticated
+    USING (true)
+    WITH CHECK (true);
 ```
 
 #### Row Calculations Table
@@ -41,9 +51,115 @@ CREATE TABLE row_calculations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     FOREIGN KEY (row_id) REFERENCES node_rows(id)
 );
+
+-- Enable RLS
+ALTER TABLE row_calculations ENABLE ROW LEVEL SECURITY;
+
+-- Simple policy: all access for authenticated users
+CREATE POLICY "Allow all access for authenticated users" ON row_calculations
+    FOR ALL
+    TO authenticated
+    USING (true)
+    WITH CHECK (true);
 ```
 
-### 3. Calculation Types
+#### Historical Data Tables
+```sql
+CREATE TABLE historical_data (
+    id UUID PRIMARY KEY,
+    node_id UUID NOT NULL,
+    row_id UUID NOT NULL,
+    metric_name VARCHAR(255) NOT NULL,
+    source VARCHAR(255) NOT NULL,
+    confidence FLOAT,  -- 0-1 scale
+    last_updated TIMESTAMP WITH TIME ZONE,
+    update_frequency VARCHAR(50),  -- daily, weekly, monthly, etc.
+    metadata JSONB DEFAULT '{}',  -- additional source-specific metadata
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (node_id) REFERENCES nodes(id),
+    FOREIGN KEY (row_id) REFERENCES node_rows(id)
+);
+
+-- Enable RLS
+ALTER TABLE historical_data ENABLE ROW LEVEL SECURITY;
+
+-- Simple policy: all access for authenticated users
+CREATE POLICY "Allow all access for authenticated users" ON historical_data
+    FOR ALL
+    TO authenticated
+    USING (true)
+    WITH CHECK (true);
+
+CREATE TABLE historical_data_points (
+    id UUID PRIMARY KEY,
+    historical_data_id UUID NOT NULL,
+    period DATE NOT NULL,
+    value NUMERIC NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    FOREIGN KEY (historical_data_id) REFERENCES historical_data(id),
+    UNIQUE (historical_data_id, period)  -- one value per period
+);
+
+-- Enable RLS
+ALTER TABLE historical_data_points ENABLE ROW LEVEL SECURITY;
+
+-- Simple policy: all access for authenticated users
+CREATE POLICY "Allow all access for authenticated users" ON historical_data_points
+    FOR ALL
+    TO authenticated
+    USING (true)
+    WITH CHECK (true);
+```
+
+### 3. Input/Output Structure
+
+#### Input Types
+Each row calculation can have two types of inputs:
+
+1. **Historical Inputs**:
+   - Used for forecasting future values
+   - Must have a mock value for preview in the creator panel
+   - Example structure:
+   ```json
+   {
+       "historical_sales": {
+           "reference": "historical_data_id",
+           "mock_value": 1000,  // Required for preview
+           "periodic_data": []  // Will be fetched from historical_data_points
+       }
+   }
+   ```
+
+2. **Row Calculation Inputs**:
+   - References to outputs from other calculations
+   - No mock value needed (calculated from input mocks)
+   - Example structure:
+   ```json
+   {
+       "sales_forecast": {
+           "reference": "row_calculation_id",
+           "mock_value": null,  // Not needed, will use input's mock output
+           "periodic_data": []  // Will use input's periodic output
+       }
+   }
+   ```
+
+#### Output Structure
+Each calculation produces:
+```json
+{
+    "mock_output": number,  // Either from mock_value (historical) or calculated from inputs
+    "periodic_output": [    // Calculated from periodic_data or input periodic outputs
+        {
+            "period": "YYYY-MM-DD",
+            "value": number
+        }
+    ]
+}
+```
+
+### 4. Calculation Types
 Available calculation types (as enum):
 - multiplication
 - division
@@ -61,39 +177,57 @@ Available calculation types (as enum):
 - Each row has multiple calculation steps in the row_calculations table
 - Steps are executed in order by step_number
 - Each step can depend on:
-  - Results from previous steps in the same row
-  - Results from other rows
+  - Historical data (for forecasting)
+  - Results from other row calculations
   - Local variables
-  - External inputs
 
-### 2. Index Management
-- Row index determines model-wide calculation order
-- Formula: `index = max(input_indices) + 1`
-- Ensures dependencies are calculated before they're needed
-- Used for model/simulation steps
+### 2. Mock Data Flow
+- **For Historical-based Calculations**:
+  - Mock value is required in the input
+  - Used for preview in the creator panel
+  - Helps validate calculation logic
+- **For Calculation-based Calculations**:
+  - No mock value needed in input
+  - Mock output is calculated from input mock outputs
+  - Ensures consistency in the calculation chain
 
 ### Example Calculation Flow
 
-#### Total Revenue Node Example
+#### Revenue Forecast Example
 ```
 Revenue Row (index: 1)
-├── Step 1: Volume Sold
-│   ├── calculation_type: multiplication
-│   ├── inputs: {"references": ["total_population"], "mock_values": {}}
-│   ├── local_variables: {"percentage": 0.05}
-│   └── output_type: number
-│
-├── Step 2: Average Price
+├── Step 1: Historical Sales
 │   ├── calculation_type: forecast_yoy
-│   ├── inputs: {"references": ["historical_data"]}
-│   ├── local_variables: {"historical_data": [{period, value}]}
-│   └── output_type: number
+│   ├── inputs: {
+│   │     "historical_sales": {
+│   │         "reference": "historical_data_id",
+│   │         "mock_value": 1000,
+│   │         "periodic_data": []
+│   │     }
+│   │ }
+│   └── output: {
+│         "mock_output": 1100,  // Forecasted from mock_value
+│         "periodic_output": []  // Will be calculated from historical_data_points
+│       }
 │
-└── Step 3: Revenue
+└── Step 2: Revenue
     ├── calculation_type: multiplication
-    ├── inputs: {"references": ["step_1_result", "step_2_result"]}
-    ├── local_variables: {}
-    └── output_type: number
+    ├── inputs: {
+    │     "sales_forecast": {
+    │         "reference": "step_1_id",
+    │         "mock_value": null,  // Not needed
+    │         "periodic_data": []  // Will use step_1's periodic_output
+    │     },
+    │     "price": {
+    │         "reference": "price_calculation_id",
+    │         "mock_value": null,  // Not needed
+    │         "periodic_data": []  // Will use price's periodic_output
+    │     }
+    │ }
+    └── output: {
+          "mock_output": 2200,  // Calculated from input mock outputs
+          "periodic_output": []  // Will be calculated from input periodic outputs
+        }
 ```
 
 #### Market Share Node Example
@@ -418,8 +552,16 @@ POST /api/rows/{row_id}/calculations
     calculation_type: str,
     local_variables: {},
     inputs: {
-        references: [],
-        mock_values: {}
+        historical_data: {
+            reference: str,
+            mock_value: number,
+            periodic_data: []
+        },
+        row_calculation: {
+            reference: str,
+            mock_value: null,
+            periodic_data: []
+        }
     },
     output_type: str,
     output_validation: {},
