@@ -43,7 +43,7 @@ CREATE TABLE row_calculations (
     step_number INTEGER NOT NULL,
     calculation_type calculation_type NOT NULL DEFAULT 'empty',
     local_variables JSONB DEFAULT '{}',
-    inputs JSONB DEFAULT '{"references": [], "mock_values": {}}',
+    inputs JSONB DEFAULT '{"references": []}',
     output_type VARCHAR(50) DEFAULT 'number',
     output_validation JSONB DEFAULT '{}',
     calculation_params JSONB DEFAULT '{}',
@@ -61,6 +61,82 @@ CREATE POLICY "Allow all access for authenticated users" ON row_calculations
     TO authenticated
     USING (true)
     WITH CHECK (true);
+
+-- Create trigger function to set default structure
+CREATE OR REPLACE FUNCTION set_row_calculation_defaults()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Set default structure for local_variables if null or empty
+    IF NEW.local_variables IS NULL OR NEW.local_variables = '{}'::jsonb THEN
+        NEW.local_variables := '{}'::jsonb;
+    END IF;
+
+    -- Set default structure for inputs if null or empty
+    IF NEW.inputs IS NULL OR NEW.inputs = '{}'::jsonb THEN
+        NEW.inputs := jsonb_build_object(
+            'references', '[]'::jsonb
+        );
+    END IF;
+
+    -- Set default structure for output_validation if null or empty
+    IF NEW.output_validation IS NULL OR NEW.output_validation = '{}'::jsonb THEN
+        NEW.output_validation := '{}'::jsonb;
+    END IF;
+
+    -- Set default structure for calculation_params if null or empty
+    IF NEW.calculation_params IS NULL OR NEW.calculation_params = '{}'::jsonb THEN
+        NEW.calculation_params := '{}'::jsonb;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to set defaults before insert
+CREATE TRIGGER set_row_calculation_defaults_trigger
+    BEFORE INSERT ON row_calculations
+    FOR EACH ROW
+    EXECUTE FUNCTION set_row_calculation_defaults();
+```
+
+#### User Profiles Table
+```sql
+CREATE TABLE user_profiles (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    mock_data JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+
+-- Simple policy: users can only access their own profile
+CREATE POLICY "Users can access own profile" ON user_profiles
+    FOR ALL
+    TO authenticated
+    USING (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
+
+-- Create trigger function to validate mock_data
+CREATE OR REPLACE FUNCTION validate_mock_data()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Ensure mock_data is a valid JSONB object
+    IF NEW.mock_data IS NULL THEN
+        NEW.mock_data := '{}'::jsonb;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to validate mock_data
+CREATE TRIGGER validate_mock_data_trigger
+    BEFORE INSERT OR UPDATE ON user_profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_mock_data();
 ```
 
 #### Historical Data Tables
@@ -162,13 +238,11 @@ Each row calculation can have two types of inputs:
 
 1. **Historical Inputs**:
    - Used for forecasting future values
-   - Must have a mock value for preview in the creator panel
    - Example structure:
    ```json
    {
        "historical_sales": {
            "reference": "historical_data_id",
-           "mock_value": 1000,  // Required for preview
            "periodic_data": []  // Will be fetched from historical_data_points
        }
    }
@@ -176,23 +250,31 @@ Each row calculation can have two types of inputs:
 
 2. **Row Calculation Inputs**:
    - References to outputs from other calculations
-   - No mock value needed (calculated from input mocks)
    - Example structure:
    ```json
    {
        "sales_forecast": {
            "reference": "row_calculation_id",
-           "mock_value": null,  // Not needed, will use input's mock output
            "periodic_data": []  // Will use input's periodic output
        }
    }
    ```
 
+#### Mock Data Structure
+Mock values are stored in the user's profile:
+```json
+{
+    "row_calculation_id_1": 1000,
+    "row_calculation_id_2": 500,
+    "row_calculation_id_3": 750
+}
+```
+
 #### Output Structure
 Each calculation produces:
 ```json
 {
-    "mock_output": number,  // Either from mock_value (historical) or calculated from inputs
+    "mock_output": number,  // Calculated using mock values from user profile
     "periodic_output": [    // Calculated from periodic_data or input periodic outputs
         {
             "period": "YYYY-MM-DD",
@@ -244,7 +326,6 @@ Revenue Row (index: 1)
 │   ├── inputs: {
 │   │     "historical_sales": {
 │   │         "reference": "historical_data_id",
-│   │         "mock_value": 1000,
 │   │         "periodic_data": []  // Will be fetched from historical_data_points
 │   │     }
 │   │ }
@@ -263,12 +344,10 @@ Revenue Row (index: 1)
     ├── inputs: {
     │     "sales_forecast": {
     │         "reference": "step_1_id",
-    │         "mock_value": null,  // Not needed
     │         "periodic_data": []  // Will use step_1's periodic_output
     │     },
     │     "price": {
     │         "reference": "price_calculation_id",
-    │         "mock_value": null,  // Not needed
     │         "periodic_data": []  // Will use price's periodic_output
     │     }
     │ }
@@ -309,7 +388,6 @@ row_calculations
     ├── inputs: {
     │   "historical_sales": {
     │       "reference": "hd_123",
-    │       "mock_value": 1000,
     │       "periodic_data": []  // Fetched from historical_data_points
     │   }
     │ }
@@ -643,12 +721,10 @@ POST /api/rows/{row_id}/calculations
     inputs: {
         historical_data: {
             reference: str,
-            mock_value: number,
             periodic_data: []
         },
         row_calculation: {
             reference: str,
-            mock_value: null,
             periodic_data: []
         }
     },
