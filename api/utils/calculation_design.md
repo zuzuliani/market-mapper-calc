@@ -68,7 +68,7 @@ CREATE POLICY "Allow all access for authenticated users" ON row_calculations
 CREATE TABLE historical_data (
     id UUID PRIMARY KEY,
     node_id UUID NOT NULL,
-    row_id UUID NOT NULL,
+    row_calculation_id UUID NOT NULL,
     metric_name VARCHAR(255) NOT NULL,
     source VARCHAR(255) NOT NULL,
     confidence FLOAT,  -- 0-1 scale
@@ -78,7 +78,7 @@ CREATE TABLE historical_data (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     FOREIGN KEY (node_id) REFERENCES nodes(id),
-    FOREIGN KEY (row_id) REFERENCES node_rows(id)
+    FOREIGN KEY (row_calculation_id) REFERENCES row_calculations(id)
 );
 
 -- Enable RLS
